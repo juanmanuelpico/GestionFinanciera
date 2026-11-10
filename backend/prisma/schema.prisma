@@ -1,0 +1,428 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ThemeColor {
+  BLUE
+  AMBER
+  EMERALD
+}
+
+enum ThemeMode {
+  LIGHT
+  DARK
+}
+
+enum QuoteType {
+  BLUE
+  OFICIAL
+  MEP
+  MANUAL
+}
+
+enum SavingStatus {
+  ACTIVO
+  CERRADO
+}
+
+enum SavingEventType {
+  ALTA
+  AJUSTE_SUMA
+  AJUSTE_RESTA
+  DEVOLUCION
+  CONVERSION
+}
+
+enum MovementType {
+  INGRESO
+  EGRESO
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  DEBITO
+  CREDITO
+  TRANSFERENCIA
+  MERCADO_PAGO
+  OTRO
+}
+
+enum DashboardSection {
+  SAVINGS
+  FIXED_EXPENSES
+  MY_DEBTS
+  THIRD_PARTY_DEBTS
+  DOLLAR_QUOTES
+}
+
+enum DebtActorType {
+  PERSONA
+  TARJETA
+}
+
+enum DebtKind {
+  PROPIA
+  TERCERO
+}
+
+enum DebtStatus {
+  ACTIVA
+  FINALIZADA
+}
+
+enum DebtSettlementStatus {
+  ACTIVA
+  REVERTIDA
+}
+
+enum DebtMovementRole {
+  INICIAL
+  CUOTA
+  REVERSA
+}
+
+model User {
+  id               String         @id @default(uuid()) @db.Uuid
+  email            String         @unique
+  passwordHash     String
+  name             String
+  role             Role           @default(USER)
+  themeColor       ThemeColor     @default(BLUE)
+  themeMode        ThemeMode      @default(LIGHT)
+  movementSequence Int            @default(0)
+  debtProperSequence Int          @default(0)
+  debtThirdSequence  Int          @default(0)
+  splitSequence      Int          @default(0)
+  enabledCurrencies String[]      @default(["ARS"])
+  headerCurrency   String         @default("ARS") @db.VarChar(3)
+  enabledPaymentMethods PaymentMethod[] @default([EFECTIVO, DEBITO, CREDITO, TRANSFERENCIA, MERCADO_PAGO, OTRO])
+  dashboardSections DashboardSection[] @default([SAVINGS, FIXED_EXPENSES, MY_DEBTS, THIRD_PARTY_DEBTS, DOLLAR_QUOTES])
+  refreshTokens    RefreshToken[]
+  categories       Category[]
+  movements        Movement[]
+  fixedExpenses    FixedExpense[]
+  savings          Saving[]
+  savingEvents     SavingEvent[]
+  debtActors       DebtActor[]
+  debts            Debt[]
+  debtSplits       DebtSplit[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@map("users")
+}
+
+model Category {
+  id        Int         @id @default(autoincrement())
+  userId    String      @db.Uuid
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String      @db.VarChar(60)
+  type      MovementType?
+  thresholdAmount   Decimal?  @db.Decimal(12, 2)
+  thresholdCurrency String?   @db.VarChar(3)
+  movements Movement[]
+  fixedExpenses FixedExpense[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("categories")
+}
+
+model Movement {
+  id            Int          @db.Integer
+  userId        String       @db.Uuid
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          MovementType
+  amount        Decimal      @db.Decimal(12, 2)
+  categoryId    Int
+  category      Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  movementDate  DateTime
+  currency      String       @default("ARS") @db.VarChar(3)
+  paymentMethod PaymentMethod?
+  note          String?      @db.VarChar(500)
+  debtId              String?            @db.Uuid
+  debt                Debt?              @relation("DebtMovements", fields: [debtId], references: [id], onDelete: Restrict)
+  debtMovementRole    DebtMovementRole?
+  splitUserShare      DebtSplit?         @relation("DebtSplitUserShareMovement")
+  fixedExpensePayment FixedExpensePayment? @relation("FixedExpensePaymentMovement")
+  settlementItemOriginal DebtSettlementItem? @relation("SettlementItemOriginalMovement")
+  settlementItemReversal DebtSettlementItem? @relation("SettlementItemReversalMovement")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@id([userId, id])
+  @@index([userId, movementDate])
+  @@index([userId, type])
+  @@index([categoryId])
+  @@index([userId, debtId])
+  @@map("movements")
+}
+
+model Saving {
+  id              Int           @id @default(autoincrement())
+  userId          String        @db.Uuid
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency        String        @db.VarChar(3)
+  amount          Decimal       @db.Decimal(14, 2)
+  quoteType       QuoteType
+  quoteRate       Decimal?      @db.Decimal(14, 4)
+  estimatedDebit  Decimal       @db.Decimal(14, 2)
+  debitCurrency   String        @db.VarChar(3)
+  purchaseDate    DateTime
+  note            String?       @db.VarChar(500)
+  status          SavingStatus  @default(ACTIVO)
+  events          SavingEvent[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId, status])
+  @@map("savings")
+}
+
+model SavingEvent {
+  id                   Int             @id @default(autoincrement())
+  userId               String          @db.Uuid
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savingId             Int
+  saving               Saving          @relation(fields: [savingId], references: [id], onDelete: Cascade)
+  type                 SavingEventType
+  amount               Decimal         @db.Decimal(14, 2)
+  currency             String          @db.VarChar(3)
+  sourceAmount         Decimal?        @db.Decimal(14, 2)
+  sourceCurrency       String?         @db.VarChar(3)
+  quoteType            QuoteType?
+  quoteRate            Decimal?        @db.Decimal(14, 4)
+  walletImpactAmount   Decimal?        @db.Decimal(14, 2)
+  walletImpactCurrency String?         @db.VarChar(3)
+  note                 String?         @db.VarChar(500)
+  createdAt            DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, type])
+  @@index([userId, currency])
+  @@index([savingId])
+  @@map("savings_events")
+}
+
+model DebtActor {
+  id                  String        @id @default(uuid()) @db.Uuid
+  userId              String        @db.Uuid
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                DebtActorType
+  firstName           String?       @db.VarChar(60)
+  lastName            String?       @db.VarChar(60)
+  phone               String?       @db.VarChar(30)
+  email               String?       @db.VarChar(254)
+  alias               String?       @db.VarChar(60)
+  issuer              String?       @db.VarChar(60)
+  brand               String?       @db.VarChar(30)
+  lastFour            String?       @db.VarChar(4)
+  closingDay          Int?
+  paymentDueDay       Int?
+  defaultWalletCurrency String?     @db.VarChar(3)
+  debts               Debt[]
+  splitPayerOf        DebtSplit[]     @relation("DebtSplitPayer")
+  splitItems          DebtSplitItem[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([userId, type])
+  @@index([userId, lastName, firstName])
+  @@map("debt_actors")
+}
+
+model Debt {
+  id               String        @id @default(uuid()) @db.Uuid
+  userId           String        @db.Uuid
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorId          String        @db.Uuid
+  actor            DebtActor     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  kind             DebtKind
+  code             String        @db.VarChar(16)
+  currency         String        @db.VarChar(3)
+  totalAmount      Decimal       @db.Decimal(14, 2)
+  installmentCount Int
+  operationDate    DateTime      @db.Date
+  firstDueDate     DateTime      @db.Date
+  note             String?       @db.VarChar(500)
+  status           DebtStatus    @default(ACTIVA)
+  splitId          String?       @db.Uuid
+  split            DebtSplit?    @relation(fields: [splitId], references: [id], onDelete: Restrict)
+  installments     DebtInstallment[]
+  settlements      DebtSettlement[]
+  movements        Movement[]    @relation("DebtMovements")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId, kind, status])
+  @@index([userId, createdAt])
+  @@index([actorId])
+  @@index([splitId])
+  @@map("debts")
+}
+
+model DebtInstallment {
+  id                  String        @id @default(uuid()) @db.Uuid
+  debtId              String        @db.Uuid
+  debt                Debt          @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  number              Int
+  dueDate             DateTime      @db.Date
+  amount              Decimal       @db.Decimal(14, 2)
+  paidAmount          Decimal       @default(0) @db.Decimal(14, 2)
+  paidAt              DateTime?
+  currentSettlementId String?       @db.Uuid
+  currentSettlement   DebtSettlement? @relation("SettlementPaidInstallments", fields: [currentSettlementId], references: [id], onDelete: Restrict)
+  settlementItems     DebtSettlementItem[]
+  createdAt           DateTime      @default(now())
+
+  @@unique([debtId, number])
+  @@index([debtId, paidAt])
+  @@index([currentSettlementId])
+  @@map("debt_installments")
+}
+
+model DebtSettlement {
+  id               String                @id @default(uuid()) @db.Uuid
+  debtId           String                @db.Uuid
+  debt             Debt                  @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  walletCurrency   String                @db.VarChar(3)
+  paymentDate      DateTime
+  totalAmount      Decimal               @db.Decimal(14, 2)
+  installmentCount Int
+  status           DebtSettlementStatus  @default(ACTIVA)
+  reversedAt       DateTime?
+  items            DebtSettlementItem[]
+  paidInstallments DebtInstallment[]     @relation("SettlementPaidInstallments")
+  createdAt        DateTime              @default(now())
+
+  @@index([debtId, status])
+  @@map("debt_settlements")
+}
+
+model DebtSettlementItem {
+  id                     String    @id @default(uuid()) @db.Uuid
+  settlementId           String    @db.Uuid
+  settlement             DebtSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  installmentId          String    @db.Uuid
+  installment            DebtInstallment @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+  installmentNumber      Int
+  amount                 Decimal   @db.Decimal(14, 2)
+  originalMovementUserId String?   @db.Uuid
+  originalMovementId     Int?
+  originalMovement       Movement? @relation("SettlementItemOriginalMovement", fields: [originalMovementUserId, originalMovementId], references: [userId, id], onDelete: Restrict)
+  reversalMovementUserId String?   @db.Uuid
+  reversalMovementId     Int?
+  reversalMovement       Movement? @relation("SettlementItemReversalMovement", fields: [reversalMovementUserId, reversalMovementId], references: [userId, id], onDelete: Restrict)
+
+  @@unique([settlementId, installmentId])
+  @@unique([originalMovementUserId, originalMovementId])
+  @@unique([reversalMovementUserId, reversalMovementId])
+  @@map("debt_settlement_items")
+}
+
+model FixedExpense {
+  id             String                @id @default(uuid()) @db.Uuid
+  userId         String                @db.Uuid
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String                @db.VarChar(120)
+  amount         Decimal               @db.Decimal(12, 2)
+  currency       String                @db.VarChar(3)
+  categoryId     Int
+  category       Category              @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  firstDueDate   DateTime              @db.Date
+  dueDay         Int
+  intervalMonths Int                   @default(1)
+  active         Boolean               @default(true)
+  payments       FixedExpensePayment[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([userId, active])
+  @@index([categoryId])
+  @@map("fixed_expenses")
+}
+
+model FixedExpensePayment {
+  id             String       @id @default(uuid()) @db.Uuid
+  fixedExpenseId String       @db.Uuid
+  fixedExpense   FixedExpense @relation(fields: [fixedExpenseId], references: [id], onDelete: Cascade)
+  period         DateTime     @db.Date
+  dueDate        DateTime     @db.Date
+  paidAt         DateTime
+  movementUserId String       @db.Uuid
+  movementId     Int
+  movement       Movement     @relation("FixedExpensePaymentMovement", fields: [movementUserId, movementId], references: [userId, id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@unique([fixedExpenseId, period])
+  @@unique([movementUserId, movementId])
+  @@index([fixedExpenseId, paidAt])
+  @@map("fixed_expense_payments")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model DebtSplit {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code                  String    @db.VarChar(16)
+  currency              String    @db.VarChar(3)
+  totalAmount           Decimal   @db.Decimal(14, 2)
+  userAmount            Decimal   @db.Decimal(14, 2)
+  payer                 DebtActor? @relation("DebtSplitPayer", fields: [paidByActorId], references: [id], onDelete: Restrict)
+  paidByActorId         String?   @db.Uuid
+  note                  String?   @db.VarChar(500)
+  operationDate         DateTime  @db.Date
+  userShareMovement     Movement? @relation("DebtSplitUserShareMovement", fields: [userShareMovementUserId, userShareMovementId], references: [userId, id], onDelete: Restrict)
+  userShareMovementUserId String? @db.Uuid
+  userShareMovementId   Int?      @db.Integer
+  items                 DebtSplitItem[]
+  debts                 Debt[]
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([userId, code])
+  @@unique([userShareMovementUserId, userShareMovementId])
+  @@index([userId, createdAt])
+  @@index([paidByActorId])
+  @@map("debt_splits")
+}
+
+model DebtSplitItem {
+  id        String    @id @default(uuid()) @db.Uuid
+  splitId   String    @db.Uuid
+  split     DebtSplit @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  actor     DebtActor @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  actorId   String    @db.Uuid
+  amount    Decimal   @db.Decimal(14, 2)
+  createdAt DateTime  @default(now())
+
+  @@unique([splitId, actorId])
+  @@index([actorId])
+  @@map("debt_split_items")
+}

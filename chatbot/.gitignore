@@ -1,0 +1,11 @@
+# Entorno virtual y artefactos de Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Variables de entorno locales
+.env
+
+# Base vectorial generada con scripts/ingest.py (local, por maquina)
+data/
